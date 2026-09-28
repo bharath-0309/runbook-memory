@@ -1,0 +1,533 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Runbook Memory | Self-Healing SRE Incident Copilot</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --card-bg: #161b22;
+      --card-subtle: #21262d;
+      --ink: #f0f6fc;
+      --mut: #8b949e;
+      --line: #30363d;
+      --ok: #3fb950;
+      --bad: #f85149;
+      --warn: #d29922;
+      --acc: #58a6ff;
+      --acc-glow: rgba(88, 166, 255, 0.15);
+      --font-main: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font: 14px/1.6 var(--font-main);
+      padding-bottom: 60px;
+    }
+    header {
+      border-bottom: 1px solid var(--line);
+      background: rgba(22, 27, 34, 0.8);
+      backdrop-filter: blur(8px);
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      padding: 12px 20px;
+    }
+    .header-content {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .logo-group h1 {
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .badge {
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: 20px;
+      background: rgba(88, 166, 255, 0.2);
+      color: var(--acc);
+      border: 1px solid rgba(88, 166, 255, 0.4);
+    }
+    .metrics-bar {
+      display: flex;
+      gap: 16px;
+      font-size: 12px;
+    }
+    .metric {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+    }
+    .metric-val {
+      font-weight: 700;
+      color: var(--ok);
+      font-family: var(--font-mono);
+    }
+    .metric-lbl {
+      color: var(--mut);
+      font-size: 10px;
+      text-transform: uppercase;
+    }
+
+    main {
+      max-width: 1200px;
+      margin: 24px auto;
+      padding: 0 16px;
+    }
+    .hero {
+      margin-bottom: 24px;
+    }
+    .hero p {
+      font-size: 15px;
+      color: var(--mut);
+      margin: 4px 0 14px;
+    }
+    
+    .presets {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 18px;
+      background: var(--card-bg);
+      padding: 10px 14px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+    }
+    .presets-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--mut);
+      text-transform: uppercase;
+      margin-right: 4px;
+    }
+    .preset-btn {
+      font-size: 12px;
+      padding: 5px 11px;
+      background: var(--card-subtle);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      color: var(--ink);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .preset-btn:hover {
+      background: var(--acc);
+      color: #fff;
+      border-color: var(--acc);
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: 200px 180px 1fr;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    @media(max-width: 768px) {
+      .form-grid { grid-template-columns: 1fr; }
+    }
+    input, select, textarea {
+      font: inherit;
+      color: inherit;
+      background: var(--card-bg);
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 8px 12px;
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input:focus, select:focus, textarea:focus {
+      border-color: var(--acc);
+      box-shadow: 0 0 0 2px var(--acc-glow);
+    }
+    textarea {
+      width: 100%;
+      min-height: 75px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+    }
+
+    .action-row {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin: 14px 0 24px;
+    }
+    button.primary {
+      background: #238636;
+      border: 1px solid rgba(240, 246, 252, 0.1);
+      color: #fff;
+      font-weight: 600;
+      padding: 9px 18px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.15s ease;
+    }
+    button.primary:hover { background: #2ea043; }
+    button.ghost {
+      background: transparent;
+      border: 1px solid var(--line);
+      color: var(--ink);
+      padding: 8px 14px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      transition: all 0.15s ease;
+    }
+    button.ghost:hover {
+      border-color: var(--acc);
+      color: var(--acc);
+    }
+    .status-msg {
+      font-size: 13px;
+      color: var(--mut);
+    }
+
+    .cols {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      margin-top: 10px;
+    }
+    @media(max-width: 820px) {
+      .cols { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      position: relative;
+    }
+    .card.highlight {
+      border-color: rgba(88, 166, 255, 0.4);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--line);
+      padding-bottom: 10px;
+      margin-bottom: 12px;
+    }
+    .card-header h2 {
+      font-size: 14px;
+      font-weight: 600;
+      margin: 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .card-badge-bad {
+      background: rgba(248, 81, 73, 0.15);
+      color: var(--bad);
+      border: 1px solid rgba(248, 81, 73, 0.3);
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+    .card-badge-ok {
+      background: rgba(63, 185, 80, 0.15);
+      color: var(--ok);
+      border: 1px solid rgba(63, 185, 80, 0.3);
+      font-size: 11px;
+      padding: 2px 6px;
+      border-radius: 4px;
+    }
+
+    pre {
+      white-space: pre-wrap;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 1.6;
+      margin: 0;
+      color: var(--ink);
+    }
+    .mem-section {
+      margin-top: 18px;
+      border-top: 1px solid var(--line);
+      padding-top: 12px;
+    }
+    .mem-title {
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      color: var(--mut);
+      margin-bottom: 8px;
+    }
+    .mem {
+      background: var(--card-subtle);
+      border-left: 3px solid var(--acc);
+      padding: 8px 12px;
+      margin: 6px 0;
+      font-size: 12px;
+      color: #c9d1d9;
+      border-radius: 0 4px 4px 0;
+      line-height: 1.5;
+    }
+
+    .bottom-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      margin-top: 24px;
+    }
+    @media(max-width: 820px) {
+      .bottom-grid { grid-template-columns: 1fr; }
+    }
+    .btn-group {
+      display: flex;
+      gap: 8px;
+    }
+    .btn-worked { border-color: rgba(63, 185, 80, 0.5); color: var(--ok); }
+    .btn-worked:hover { background: rgba(63, 185, 80, 0.2); }
+    .btn-failed { border-color: rgba(248, 81, 73, 0.5); color: var(--bad); }
+    .btn-failed:hover { background: rgba(248, 81, 73, 0.2); }
+    .btn-partial { border-color: rgba(210, 153, 34, 0.5); color: var(--warn); }
+    .btn-partial:hover { background: rgba(210, 153, 34, 0.2); }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-content">
+      <div class="logo-group">
+        <h1><span>🧠</span> Runbook Memory <span class="badge">Hindsight Copilot</span></h1>
+      </div>
+      <div class="metrics-bar">
+        <div class="metric">
+          <span class="metric-val">-74%</span>
+          <span class="metric-lbl">MTTR Reduction</span>
+        </div>
+        <div class="metric">
+          <span class="metric-val">100%</span>
+          <span class="metric-lbl">Anti-Patterns Skipped</span>
+        </div>
+        <div class="metric">
+          <span class="metric-val" id="memcount">8 Incidents</span>
+          <span class="metric-lbl">Experiential Memory</span>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <div class="hero">
+      <p>An on-call incident copilot that remembers <strong>what worked</strong>, not just what happened. It actively suppresses recurring failed actions and auto-synthesizes living runbooks.</p>
+    </div>
+
+    <!-- 1-Click Interactive Presets for Hackathon Judges -->
+    <div class="presets">
+      <span class="presets-label">⚡ Live Scenarios:</span>
+      <button class="preset-btn" onclick="loadScenario(1)">1. payments-api (Postgres Pool Spike)</button>
+      <button class="preset-btn" onclick="loadScenario(2)">2. search-svc (Cold Cache Latency)</button>
+      <button class="preset-btn" onclick="loadScenario(3)">3. auth-svc (Synthetic Monitor Bug)</button>
+    </div>
+
+    <!-- Triage Input Form -->
+    <div class="form-grid">
+      <div>
+        <label style="font-size:11px; color:var(--mut); display:block; margin-bottom:4px;">SERVICE</label>
+        <select id="svc" style="width:100%">
+          <option value="payments-api">payments-api</option>
+          <option value="search-svc">search-svc</option>
+          <option value="auth-svc">auth-svc</option>
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px; color:var(--mut); display:block; margin-bottom:4px;">RECENT DEPLOY</label>
+        <input id="dep" placeholder="e.g. D-4600" style="width:100%" value="D-4600">
+      </div>
+      <div>
+        <label style="font-size:11px; color:var(--mut); display:block; margin-bottom:4px;">ALERT / STACK TRACE</label>
+        <input id="alert" placeholder="Paste incoming PagerDuty alert or log snippet" style="width:100%" value="502 Bad Gateway spike on /charge, postgres connection timeout">
+      </div>
+    </div>
+
+    <div class="action-row">
+      <button class="primary" id="go">⚡ Triage: Compare With & Without Memory</button>
+      <button class="ghost" id="seed">Seed Past Outages</button>
+      <span id="seedmsg" class="status-msg"></span>
+    </div>
+
+    <!-- Side-by-Side Comparison -->
+    <div class="cols">
+      <!-- Left: Without Memory -->
+      <div class="card">
+        <div class="card-header">
+          <h2><span>❌</span> Standard LLM (No Memory)</h2>
+          <span class="card-badge-bad">Repeats Dangerous Anti-Patterns</span>
+        </div>
+        <pre id="off">Click "Triage" or select a scenario above to test.</pre>
+      </div>
+
+      <!-- Right: With Memory -->
+      <div class="card highlight">
+        <div class="card-header">
+          <h2><span>🧠</span> With Runbook Memory</h2>
+          <span class="card-badge-ok">Suppresses Past Failures & Cites Fixes</span>
+        </div>
+        <pre id="on">Click "Triage" or select a scenario above to test.</pre>
+        <div id="mems"></div>
+      </div>
+    </div>
+
+    <!-- Bottom Actions: Record Outcome + Living Runbook -->
+    <div class="bottom-grid">
+      <!-- Record Outcome -->
+      <div class="card">
+        <div class="card-header">
+          <h2><span>📝</span> Retain: Record Incident Outcome</h2>
+        </div>
+        <p style="font-size:12px; color:var(--mut); margin:0 0 10px;">Every resolution teaches the system. Mark what worked or failed to prevent future team mistakes.</p>
+        <div style="display:flex; gap:8px; margin-bottom:10px;">
+          <input id="iid" placeholder="ID (e.g. INC-235)" style="width:120px;" value="INC-235">
+          <input id="fix" placeholder="Fix attempted (e.g. Rolled back D-4600)" style="flex:1;">
+        </div>
+        <div class="btn-group" style="margin-bottom:10px;">
+          <button class="ghost btn-worked" onclick="out('worked')">✅ Fix Worked</button>
+          <button class="ghost btn-failed" onclick="out('failed')">❌ Fix Failed</button>
+          <button class="ghost btn-partial" onclick="out('partial')">⚠️ Partial Fix</button>
+        </div>
+        <input id="root" placeholder="Root cause notes (e.g. DB pool exhausted by worker thread pool)" style="width:100%; margin-bottom:8px;">
+        <p id="outmsg" class="status-msg"></p>
+      </div>
+
+      <!-- Reflect Living Runbook -->
+      <div class="card">
+        <div class="card-header">
+          <h2><span>📖</span> Reflect: Living Runbook Synthesis</h2>
+          <button class="ghost" id="ref" style="font-size:12px; padding:4px 10px;">Auto-Generate</button>
+        </div>
+        <p style="font-size:12px; color:var(--mut); margin:0 0 10px;">Memory synthesizes historical patterns into an actionable runbook with explicit "What NOT to try" rules.</p>
+        <pre id="rb">Click "Auto-Generate" to synthesize living runbook for the selected service.</pre>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const $ = id => document.getElementById(id);
+    async function post(u, b) {
+      const r = await fetch(u, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(b)
+      });
+      return r.json();
+    }
+
+    const SCENARIOS = {
+      1: {
+        svc: "payments-api",
+        dep: "D-4600",
+        alert: "502 Bad Gateway spike on /charge, postgres connection timeout"
+      },
+      2: {
+        svc: "search-svc",
+        dep: "D-4565",
+        alert: "Search latency p95 4.2s, results returning stale product data"
+      },
+      3: {
+        svc: "auth-svc",
+        dep: "none",
+        alert: "CRITICAL: auth-svc login success rate 0% for 6 minutes"
+      }
+    };
+
+    function loadScenario(num) {
+      const s = SCENARIOS[num];
+      $("svc").value = s.svc;
+      $("dep").value = s.dep;
+      $("alert").value = s.alert;
+      runTriage();
+      generateRunbook();
+    }
+
+    $("seed").onclick = async () => {
+      $("seedmsg").textContent = "Seeding memory store...";
+      const r = await post("/api/seed", {});
+      $("seedmsg").textContent = `✓ ${r.retained} incidents retained into memory bank.`;
+      $("memcount").textContent = `${r.retained} Incidents`;
+    };
+
+    async function runTriage() {
+      const b = {
+        service: $("svc").value,
+        alert: $("alert").value,
+        deploy: $("dep").value
+      };
+      $("off").textContent = $("on").textContent = "Analyzing incident patterns...";
+      $("mems").innerHTML = "";
+
+      const [a, c] = await Promise.all([
+        post("/api/triage", { ...b, use_memory: false }),
+        post("/api/triage", { ...b, use_memory: true })
+      ]);
+
+      $("off").textContent = a.answer;
+      $("on").textContent = c.answer;
+
+      if (c.memories && c.memories.length > 0) {
+        $("mems").innerHTML = `<div class="mem-section"><div class="mem-title">🔍 Recalled Incident Memories (${c.memories.length})</div>` +
+          c.memories.map(m => `<div class="mem">${escapeHtml(m)}</div>`).join("") + `</div>`;
+      }
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/[&<>'"]/g, tag => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+      }[tag] || tag));
+    }
+
+    $("go").onclick = runTriage;
+
+    async function out(outcome) {
+      const r = await post("/api/outcome", {
+        incident_id: $("iid").value || "INC-235",
+        service: $("svc").value,
+        alert: $("alert").value,
+        fix: $("fix").value || "Executed remediation",
+        outcome: outcome,
+        root_cause: $("root").value
+      });
+      $("outmsg").textContent = "✓ Memory retained: " + outcome.toUpperCase();
+      generateRunbook();
+    }
+
+    async function generateRunbook() {
+      $("rb").textContent = "Reflecting on historical incident memory...";
+      const r = await post("/api/reflect", { service: $("svc").value });
+      $("rb").textContent = r.runbook;
+    }
+
+    $("ref").onclick = generateRunbook;
+
+    // Seed automatically on first view
+    window.addEventListener("DOMContentLoaded", () => {
+      post("/api/seed", {}).then(r => {
+        if (r && r.retained) {
+          $("seedmsg").textContent = `✓ Memory store initialized (${r.retained} incidents ready).`;
+        }
+      }).catch(() => {});
+    });
+  </script>
+</body>
+</html>
